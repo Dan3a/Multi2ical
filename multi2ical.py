@@ -1,4 +1,4 @@
-import requests, os, json, csv, datetime
+import requests, os, json, csv, datetime, base64
 
 from ical.calendar import Calendar
 from ical.event import Event
@@ -10,98 +10,63 @@ import datetime, calendar
 from pathlib import Path
 from ical.calendar_stream import IcsCalendarStream
 
+################################################################
+
+outputCalendar = "<OUTPUT ICS PATH>"
+
+################################################################
+
 calendar = Calendar()
 
-url = "https://multi.univ-lorraine.fr/graphql"
+url = "https://mobile-back.univ-lorraine.fr/schedule"
 
-with open('<TOKEN FILE PATH>', 'r') as f:
+with open('<TOKEN INPUT PATH>', 'r') as f:
   tokens = f.readlines()
 
-refresh_token = tokens[0][:-1] # Obtenir les tokens
-token = tokens[1][:-1]
+token = tokens[0][:-1]
 
+token = base64.b64decode(token)
 
-# Request header
+token = token.decode('utf-8')
+
 headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/118.0",
-    "Accept": "*/*",
-    "Accept-Language": "fr-FR,en-US;q=0.7,en;q=0.3",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-GB,en;q=0.5",
+    "Accept-Encoding": "gzip, deflate, br, zstd",
     "Content-Type": "application/json",
-    "x-refresh-token": refresh_token,
-    "x-token": token,
+    "Origin": "https://mobile.univ-lorraine.fr",
+    "Connection": "keep-alive",
+    "Referer": "https://mobile.univ-lorraine.fr/",
     "Sec-Fetch-Dest": "empty",
     "Sec-Fetch-Mode": "cors",
-    "Sec-Fetch-Site": "same-origin",
+    "Sec-Fetch-Site": "same-site",
+    "TE": "trailers"
 }
 
-graphql_query = """
-query timetable($uid: String!, $from: Float, $to: Float) {
-  timetable(uid: $uid, from: $from, to: $to) {
-    id
-    messages {
-      text
-      level
-    }
-    plannings {
-      id
-      type
-      label
-      default
-      messages {
-        text
-        level
-      }
-      events {
-        id
-        startDateTime
-        endDateTime
-        day
-        duration
-        urls
-        course {
-          id
-          label
-          color
-          url
-          type
-        }
-        teachers {
-          name
-          email
-        }
-        rooms {
-          label
-        }
-        groups {
-          label
-        }
-      }
-    }
-  }
-}
-"""
-
-payload = {
-    "operationName": "timetable",
-    "variables": {"uid": "<NOM D'UTILISATEUR UL>", "from": 1696111200000, "to": 1719828000000}, # from : Timestamp début    to : Timestamp fin
-    "query": graphql_query,  
+data = {
+    "authToken": f"{token}",
+    "startDate": "2024-09-01",
+    "endDate": "2025-09-01",
+    "asUser": None
 }
 
+# Make the POST request
+response = requests.post(url, headers=headers, json=data)
 
 # Envoi reqûete POST
-response = requests.post(url, headers=headers, json=payload)
+# response = requests.post(url, headers=headers, json=payload)
 
-if response.status_code == 200:
+if response.status_code == 201:
     graphql_data = response.json()
 
-    for i in range(0, len(graphql_data["data"]["timetable"]["plannings"][0]["events"])):
-        data = graphql_data["data"]["timetable"]["plannings"][0]["events"][i]
+    for i in range(0, len(graphql_data["plannings"][0]["events"])):
+        data = graphql_data["plannings"][0]["events"][i]
 
 
         courseid = data["id"]
         startDateTime = data["startDateTime"]
         endDateTime = data["endDateTime"]
-        duration = data["duration"]
         courseLabel = data["course"]["label"]
 
         weekday = (startDateTime[:4], startDateTime[5:7], startDateTime[8:10])
@@ -168,23 +133,9 @@ if response.status_code == 200:
 
         calendar.events.append(Event(summary=courseLabel, dtstart=datetime.datetime(year, month, day, hoursStart, minutesStart, secondsStart), dtend=datetime.datetime(year, month, day, hoursEnd, minutesEnd, secondsEnd), location=room, organizer=organizers, attendees=[attendee]))
 
-    outputCalendar = "<OUTPUT FILE PATH>"
-
-
     filename = Path(outputCalendar)
     with filename.open(mode="w", encoding="utf-8") as ics_file:
         ics_file.write(IcsCalendarStream.calendar_to_ics(calendar))
-
-
-
-
-
-
-
-
-
-
-
 
 elif response.status_code == 400:
     print("GraphQL Request Failed. Response Content:")
